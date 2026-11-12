@@ -156,6 +156,7 @@ case "$phase" in
     # Runs from a checkout of the base commit, with this script as the owner merged it. MODE, BRANCH, BASE, BASE_BRANCH
     # and SPEC are the agent job's outputs from before the agent ran; the bundle and the report come from the agent
     # and are checked, not trusted.
+    FACTORY_HANDOFF="${FACTORY_HANDOFF:-${RUNNER_TEMP:-}/handoff}" # where the workflow downloads the hand-over
     need FACTORY_MODE FACTORY_BRANCH FACTORY_BASE FACTORY_BASE_BRANCH FACTORY_HANDOFF ISSUE_NUMBER
     [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]] || die "issue number is not a number"
     case "$FACTORY_MODE" in
