@@ -269,8 +269,9 @@ case "$phase" in
     title="$(sed -n 's/^# Spec: *//p' "$spec" | head -n 1)"
     [[ -n "$title" ]] || title="$(basename "$spec" .md)"
 
+    # The reason may reach a public issue comment, where secrets aren't masked: strip credentials from URLs.
     git push --quiet "${FACTORY_PUSH_URL:-https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY}" \
-      "HEAD:refs/heads/$branch"
+      "HEAD:refs/heads/$branch" 2>"$state/push.err" || die "could not push $branch: $(sed -E 's#https://[^@/[:space:]]*@#https://#g' "$state/push.err" | tr -s '\n' ' ')"
 
     run="${FACTORY_RUN_URL:+ ($FACTORY_RUN_URL)}"
     if [[ "$mode" == spec ]]; then
@@ -292,7 +293,11 @@ case "$phase" in
     fi
     { cat "$state/report.md"; printf '\n\n---\n%s\n' "$footer"; } > "$state/pr-body.md"
     pr_url="$(gh api "repos/$GITHUB_REPOSITORY/pulls" -f title="$pr_title" -f head="$branch" \
-      -f base="$base_branch" -F body=@"$state/pr-body.md" --jq .html_url)"
+      -f base="$base_branch" -F body=@"$state/pr-body.md" --jq .html_url 2>"$state/pr.err")" || {
+      hint=""
+      grep -q 'not permitted to create or approve pull requests' "$state/pr.err" && hint=" Turn on Settings → Actions → General → \"Allow GitHub Actions to create and approve pull requests\" (claude-factory's ci/protect-repo.sh does it), delete the branch $branch, then remove and re-add the label."
+      die "GitHub refused the pull request: $(tr -s '\n' ' ' < "$state/pr.err")$hint"
+    }
     [[ -n "$pr_url" ]] || die "the pull request was not created"
     echo "$pr_url" > "$state/pr-url"
 
