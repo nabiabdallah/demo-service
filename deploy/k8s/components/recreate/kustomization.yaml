@@ -1,0 +1,15 @@
+# Stop all old pods before starting new ones: for a release whose migration the previous version can't run
+# against (a migration headed "-- rollout: recreate"). This means downtime. Add it to an overlay only in the
+# promotion that crosses such a migration and remove it in the next one; check-deploy.sh enforces both.
+#   components:
+#     - ../../components/recreate
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+patches:
+  - target:
+      kind: Deployment
+    patch: |-
+      - op: replace
+        path: /spec/strategy
+        value:
+          type: Recreate

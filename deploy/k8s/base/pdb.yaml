@@ -1,0 +1,11 @@
+# At most one pod down to voluntary disruptions (node drains, cluster upgrades). maxUnavailable rather than
+# minAvailable, so a 1-replica environment can still be drained. It limits evictions, not rollouts.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: demo-service
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: demo-service

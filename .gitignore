@@ -1,0 +1,12 @@
+target/
+*.iml
+.idea/
+.vscode/
+.env
+.env.*
+secrets/
+
+# Claude Code: personal overrides and hook state stay local
+.claude/settings.local.json
+.claude/.verify-gate-attempts
+CLAUDE.local.md

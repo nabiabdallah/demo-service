@@ -1,0 +1,14 @@
+# Kustomize base (claude-factory ADR 0007, 0012). Don't apply it directly: deploy an overlay,
+#   kubectl apply -k deploy/k8s/overlays/<env>
+# which sets the namespace, replicas and the image tag (a commit on main; see README "Deploy").
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/name: demo-service
+    includeSelectors: true

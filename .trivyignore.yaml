@@ -1,0 +1,6 @@
+# Accepted vulnerability findings for the CI image scan (claude-factory ADR 0009). Each needs a reason and an
+# expiry, after which the scan fails again:
+#   - id: CVE-2026-12345
+#     statement: "Not reachable: we never call X. Revisit when Y ships a fix."
+#     expired_at: 2027-01-31
+vulnerabilities: []

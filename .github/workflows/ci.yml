@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Actions are pinned to commit SHAs (claude-factory ADR 0009); Dependabot keeps the pins current.
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # factory-parent comes from GitHub Packages in the claude-factory repo. Maven packages are
+      # repository-scoped there, so this repo's GITHUB_TOKEN can't read them: the repo secret
+      # FACTORY_PACKAGES_TOKEN holds a classic PAT with only read:packages.
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: github
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: FACTORY_PACKAGES_TOKEN
+
+      - name: Verify (Enforcer, tests, coverage floor, ArchUnit, Spotless; SBOM by Spring Boot)
+        run: ./mvnw -B verify
+        env:
+          FACTORY_PACKAGES_TOKEN: ${{ secrets.FACTORY_PACKAGES_TOKEN }}
+
+      # Vulnerability scan of the exact image layers CI would push (claude-factory ADR 0009): fails on
+      # HIGH/CRITICAL findings that have a fix. Exceptions go in .trivyignore.yaml with a reason and expiry.
+      - name: Build the image to a tarball (no push), unpacked as an OCI layout for the scanner
+        run: |
+          ./mvnw -B -q -DskipTests compile jib:buildTar
+          mkdir -p target/oci-image && tar -xf target/jib-image.tar -C target/oci-image
+        env:
+          FACTORY_PACKAGES_TOKEN: ${{ secrets.FACTORY_PACKAGES_TOKEN }}
+
+      - name: Install pinned, checksum-verified tools
+        run: .github/scripts/ci-tools.sh trivy
+
+      - name: Scan the image (Trivy)
+        run: >
+          trivy image --input target/oci-image
+          --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed
+          --ignorefile .trivyignore.yaml --exit-code 1
+
+      - name: Keep the coverage report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage
+          path: target/site/jacoco/
+          if-no-files-found: ignore
+
+      - name: Keep the SBOM
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: target/classes/META-INF/sbom/application.cdx.json
+          if-no-files-found: ignore
+
+  # Deploy gate (claude-factory ADR 0012): overlays render and match the schemas, images are pinned to commits
+  # on main, and a promotion (an overlay's newTag changed) follows the migration rollout rule.
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the checks compare commits: is the tag on main, which migrations lie in between
+
+      - name: Install pinned, checksum-verified tools
+        run: .github/scripts/ci-tools.sh kubeconform
+
+      - name: Check deploy manifests and promotions
+        run: .github/scripts/check-deploy.sh "$BASE"
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+
+  # Container image (claude-factory ADR 0007): only for pushes to main, after verify passed.
+  # Jib builds without a Docker daemon and pushes with this repo's own token. The pushed digest is
+  # signed keylessly (Sigstore, GitHub OIDC) and the SBOM is attached as a signed attestation.
+  image:
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      id-token: write # keyless signing: the OIDC identity of this workflow signs the image
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+          server-id: github
+          server-username-env-var: GITHUB_ACTOR
+          server-password-env-var: FACTORY_PACKAGES_TOKEN
+
+      - name: Build and push ghcr.io image (tags <sha>, main)
+        run: >
+          ./mvnw -B -DskipTests package jib:build
+          -Djib.to.tags=${{ github.sha }},main
+          -Djib.to.auth.username=${{ github.actor }}
+          -Djib.to.auth.password=${{ github.token }}
+        env:
+          FACTORY_PACKAGES_TOKEN: ${{ secrets.FACTORY_PACKAGES_TOKEN }}
+
+      - name: Install pinned, checksum-verified tools
+        run: .github/scripts/ci-tools.sh cosign
+
+      - name: Sign the pushed digest and attest its SBOM
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: |
+          image=$(jq -r .image target/jib-image.json | sed 's/:[^/]*$//')
+          ref="$image@$(cat target/jib-image.digest)"
+          echo "$REGISTRY_TOKEN" | cosign login ghcr.io --username "${{ github.actor }}" --password-stdin
+          cosign sign --yes "$ref"
+          cosign attest --yes --type cyclonedx --predicate target/classes/META-INF/sbom/application.cdx.json "$ref"
+          echo "Signed $ref" >> "$GITHUB_STEP_SUMMARY"

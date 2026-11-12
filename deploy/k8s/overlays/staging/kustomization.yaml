@@ -1,0 +1,30 @@
+# staging. Promote by changing newTag to a commit on main (CI pushed an image for it) in a reviewed PR;
+# .github/scripts/check-deploy.sh checks the change. "unreleased" means nothing has been promoted yet.
+#   kubectl apply -k deploy/k8s/overlays/staging
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: demo-service-staging
+resources:
+  - ../../base
+replicas:
+  - name: demo-service
+    count: 1
+# Trace sampling and the environment name on every span (ADR 0014).
+patches:
+  - target:
+      kind: Deployment
+      name: demo-service
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MANAGEMENT_TRACING_SAMPLING_PROBABILITY
+          value: "1.0"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: OTEL_RESOURCE_ATTRIBUTES
+          value: deployment.environment.name=staging
+images:
+  - name: ghcr.io/nabiabdallah/demo-service
+    newTag: unreleased

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(mvn *)",
+      "Bash(./mvnw *)",
+      "Bash(mvnw-sandboxed *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(git worktree *)"
+    ],
+    "ask": [
+      "Bash(git push *)"
+    ],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/secrets/**)",
+      "Edit(/src/test/java/**/ArchitectureTest.java)",
+      "Write(/src/test/java/**/ArchitectureTest.java)"
+    ]
+  },
+  "extraKnownMarketplaces": {
+    "claude-factory": {
+      "source": {
+        "source": "github",
+        "repo": "nabiabdallah/claude-factory",
+        "ref": "java-pipeline-v0.19.0",
+        "sparsePaths": [
+          ".claude-plugin",
+          "plugins"
+        ]
+      }
+    }
+  },
+  "enabledPlugins": {
+    "java-pipeline@claude-factory": true
+  }
+}

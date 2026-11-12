@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-service
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      # Prometheus' common Kubernetes discovery convention (claude-factory ADR 0014).
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: /actuator/prometheus
+    spec:
+      # 30s > the app's 20s graceful shutdown (spring.lifecycle.timeout-per-shutdown-phase).
+      terminationGracePeriodSeconds: 30
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: ghcr.io/nabiabdallah/demo-service
+          ports:
+            - name: http
+              containerPort: 8080
+            # Actuator: probes and Prometheus metrics; never routed by an ingress (ADR 0014).
+            - name: management
+              containerPort: 8081
+          # Traces over OTLP to an OpenTelemetry Collector in the monitoring namespace. Placeholder address:
+          # change it to your Collector. Overlays add the sampling rate and the environment name.
+          env:
+            - name: MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT
+              value: http://otel-collector.monitoring:4318/v1/traces
+          # Database settings (DB_URL, DB_USERNAME, DB_PASSWORD) from a Secret you create in the cluster;
+          # never committed. Optional, so services without a database start without it.
+          envFrom:
+            - secretRef:
+                name: demo-service-db
+                optional: true
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 768Mi
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            periodSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

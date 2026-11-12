@@ -1,0 +1,37 @@
+# Weekly dependency PRs: Maven dependencies (including the factory-parent version) and GitHub Actions.
+# Minor/patch updates are grouped; majors arrive one PR each.
+# factory-parent lives in GitHub Packages (claude-factory repo), so this repo needs the Dependabot secret
+# FACTORY_PACKAGES_TOKEN (classic PAT, read:packages only) — Dependabot secrets are separate from Actions
+# secrets: gh secret set FACTORY_PACKAGES_TOKEN --app dependabot --repo <owner>/<repo>
+version: 2
+
+registries:
+  factory-packages:
+    type: maven-repository
+    url: https://maven.pkg.github.com/nabiabdallah/claude-factory
+    username: nabiabdallah
+    password: ${{secrets.FACTORY_PACKAGES_TOKEN}}
+
+updates:
+  - package-ecosystem: "maven"
+    directory: "/"
+    registries: "*"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps"
+    groups:
+      maven-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
