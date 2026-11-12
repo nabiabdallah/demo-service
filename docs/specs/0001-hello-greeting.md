@@ -1,6 +1,6 @@
 # Spec: Hello greeting endpoint
 
-- Status: Draft
+- Status: Approved
 - Owner: issue #3 author
 - Related ADRs: 0001 (hexagonal architecture)
 
@@ -24,8 +24,8 @@ service and also exercises the full spec → build pipeline end to end.
 
 | Part | Definition |
 |---|---|
-| Query `name` | string, required, trimmed length 1..50 (assumes Q1) |
-| 200 response | `application/json`: `{"greeting": "Hello, <name>!"}` (assumes Q2) |
+| Query `name` | string, required, trimmed length 1..50 |
+| 200 response | `application/json`: `{"greeting": "Hello, <name>!"}` |
 | 400 | RFC 9457 problem (via `ErrorHandler`) for missing, blank or too-long `name` |
 | 405 | problem response for non-GET methods |
 
@@ -40,10 +40,10 @@ is stateless and reads nothing). This holds until the service gains authenticati
 
 ## Acceptance criteria
 1. Given `name=Alice`, when `GET /hello?name=Alice`, then the response is 200 with `{"greeting":"Hello, Alice!"}`.
-2. Given `name=  Alice  ` (surrounding whitespace), when called, then the greeting uses the trimmed name `Alice` (assumes Q1).
+2. Given `name=  Alice  ` (surrounding whitespace), when called, then the greeting uses the trimmed name `Alice`.
 3. Given no `name` parameter, when called, then the response is 400 with a problem body and no stack trace or internal detail.
 4. Given `name=` or only whitespace, when called, then the response is 400 with a problem body.
-5. Given a `name` longer than 50 characters, when called, then the response is 400 (assumes Q1).
+5. Given a `name` longer than 50 characters, when called, then the response is 400.
 6. Given a non-ASCII name such as `Zoë` or `李雷`, when called, then the greeting contains it unchanged and is returned as UTF-8.
 7. Given a name containing markup such as `<b>x</b>`, when called, then it is returned as a JSON string value only, with `Content-Type: application/json`.
 8. Given `POST /hello`, when called, then the response is 405.
@@ -64,7 +64,12 @@ Additive new endpoint, no schema change; old and new pods can run together. Roll
 Trivial latency (in-memory string formatting). The name is treated as potential PII: not logged, not a tag.
 No retention (nothing stored).
 
+## Decisions
+Answered by the owner on 2026-11-13, each the recommended answer:
+- Q1, length and trimming: trim, then 1 to 50 characters.
+- Q2, missing or blank `name`: 400 problem response, no default.
+- Q3, response format: JSON `{"greeting": "Hello, <name>!"}`.
+- Q4, characters: reject control characters (400); JSON encoding handles the rest.
+
 ## Open questions
-- Q1: What are the validation rules for `name`? Recommended: required, trimmed, 1..50 characters, any characters allowed (JSON-escaped on output); bounded length stops abuse and oversized responses.
-- Q2: What is the response format? Recommended: JSON `{"greeting":"Hello, <name>!"}`, extensible and consistent with the problem+json errors elsewhere; the alternative is plain text.
-- Q3: Should a missing `name` default to a generic greeting (`Hello, World!`) instead of 400? Recommended: no, 400, since the idea says `name=X` is the input and a default is an unrequested rule (criterion 3 assumes this).
+- None.
