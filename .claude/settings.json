@@ -29,7 +29,7 @@
       "source": {
         "source": "github",
         "repo": "nabiabdallah/claude-factory",
-        "ref": "java-pipeline-v0.19.0",
+        "ref": "java-pipeline-v0.19.1",
         "sparsePaths": [
           ".claude-plugin",
           "plugins"

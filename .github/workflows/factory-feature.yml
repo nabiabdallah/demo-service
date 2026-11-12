@@ -121,8 +121,6 @@ jobs:
       FACTORY_BASE: ${{ needs.agent.outputs.base }}
       FACTORY_BASE_BRANCH: ${{ needs.agent.outputs.base_branch }}
       FACTORY_SPEC: ${{ needs.agent.outputs.spec }}
-      FACTORY_HANDOFF: ${{ runner.temp }}/handoff
-      FACTORY_TRUSTED: ${{ runner.temp }}/trusted-factory-run.sh
     steps:
       # The base commit, not the agent's tree: the script that gates runs here is the one the owner merged.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -146,22 +144,23 @@ jobs:
           path: ${{ runner.temp }}/handoff
 
       # Once the bundle is checked out, the tree is the agent's: run this script from a copy outside it.
+      # ($RUNNER_TEMP, not ${{ runner.temp }} in job-level env: GitHub rejects the runner context there.)
       - name: Keep the runner outside the tree the agent wrote
-        run: cp .github/scripts/factory-run.sh "$FACTORY_TRUSTED"
+        run: cp .github/scripts/factory-run.sh "$RUNNER_TEMP/trusted-runner.sh"
 
       - name: Check the bundle on the base
-        run: $FACTORY_TRUSTED unpack
+        run: '"$RUNNER_TEMP/trusted-runner.sh" unpack'
 
       - name: "Gate (spec: one complete spec file, nothing else; build: protected files untouched, ./mvnw verify green)"
         id: gate
-        run: $FACTORY_TRUSTED gate
+        run: '"$RUNNER_TEMP/trusted-runner.sh" gate'
         env:
           FACTORY_PACKAGES_TOKEN: ${{ secrets.FACTORY_PACKAGES_TOKEN }}
 
       - name: Say why the run stopped
         id: failed
         if: failure()
-        run: $FACTORY_TRUSTED failed
+        run: '"$RUNNER_TEMP/trusted-runner.sh" failed'
 
       - name: Keep the build log
         if: always()
@@ -192,8 +191,6 @@ jobs:
       FACTORY_BASE_BRANCH: ${{ needs.agent.outputs.base_branch }}
       FACTORY_SPEC: ${{ needs.agent.outputs.spec }}
       FACTORY_GATED_SHA: ${{ needs.gate.outputs.head }}
-      FACTORY_HANDOFF: ${{ runner.temp }}/handoff
-      FACTORY_TRUSTED: ${{ runner.temp }}/trusted-factory-run.sh
       FACTORY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,17 +206,17 @@ jobs:
 
       # Once the bundle is checked out, the tree is the agent's: run this script from a copy outside it.
       - name: Keep the runner outside the tree the agent wrote
-        run: cp .github/scripts/factory-run.sh "$FACTORY_TRUSTED"
+        run: cp .github/scripts/factory-run.sh "$RUNNER_TEMP/trusted-runner.sh"
 
       - name: Check the bundle on the base again (nothing is built here)
         run: |
-          $FACTORY_TRUSTED unpack
-          $FACTORY_TRUSTED gate
+          "$RUNNER_TEMP/trusted-runner.sh" unpack
+          "$RUNNER_TEMP/trusted-runner.sh" gate
         env:
           FACTORY_GATE_BUILD: '0'
 
       - name: Push the branch and open the pull request
-        run: $FACTORY_TRUSTED publish
+        run: '"$RUNNER_TEMP/trusted-runner.sh" publish'
         env:
           GH_TOKEN: ${{ secrets.FACTORY_PR_TOKEN || github.token }}
           FACTORY_PR_TOKEN_SET: ${{ secrets.FACTORY_PR_TOKEN != '' }}
@@ -227,7 +224,7 @@ jobs:
       - name: Say why the run stopped
         id: failed
         if: failure()
-        run: $FACTORY_TRUSTED failed
+        run: '"$RUNNER_TEMP/trusted-runner.sh" failed'
 
   report:
     needs: [agent, gate, publish]
