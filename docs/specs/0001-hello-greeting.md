@@ -24,9 +24,9 @@ service and also exercises the full spec → build pipeline end to end.
 
 | Part | Definition |
 |---|---|
-| Query `name` | string, required, trimmed length 1..50 |
+| Query `name` | string, required, trimmed length 1..50, no control characters |
 | 200 response | `application/json`: `{"greeting": "Hello, <name>!"}` |
-| 400 | RFC 9457 problem (via `ErrorHandler`) for missing, blank or too-long `name` |
+| 400 | RFC 9457 problem (via `ErrorHandler`) for missing, blank, too-long or control-character `name` |
 | 405 | problem response for non-GET methods |
 
 Layering: controller in `adapter/in/web` calls a use-case interface in `application/port/in`
@@ -50,9 +50,12 @@ is stateless and reads nothing). This holds until the service gains authenticati
 9. Given any request, when it is handled, then the name does not appear in log output, and no metric tag or span attribute carries it.
 10. Given concurrent requests with different names, when handled, then each response contains only its own name (no shared state).
 11. The use-case service has a unit test with no Spring context, and `ArchitectureTest` passes.
+12. Given a name containing a control character (`name=a%0Ab` or `name=a%00b`), when called, then the response is
+    400 with a problem body that does not repeat the supplied name.
 
 ## Failure modes
-- Invalid or missing input: 400 problem response, generic detail that does not repeat the supplied name.
+- Invalid, missing, too-long or control-character input: 400 problem response, generic detail that does not
+  repeat the supplied name.
 - Unknown entity, downstream timeout, partial failure, duplicate request, other caller's data: not applicable
   (stateless, no dependencies, idempotent by nature).
 - Unexpected error: 500 via `ErrorHandler` with `errorId`.
@@ -65,11 +68,11 @@ Trivial latency (in-memory string formatting). The name is treated as potential 
 No retention (nothing stored).
 
 ## Decisions
-Answered by the owner on 2026-11-13, each the recommended answer:
-- Q1, length and trimming: trim, then 1 to 50 characters.
-- Q2, missing or blank `name`: 400 problem response, no default.
-- Q3, response format: JSON `{"greeting": "Hello, <name>!"}`.
-- Q4, characters: reject control characters (400); JSON encoding handles the rest.
+The owner's answers (2026-11-13), which replace the draft's open questions:
+- Validation: `name` is required, trimmed, then 1 to 50 characters. Control characters are rejected with 400
+  (criterion 12); everything else is allowed and JSON-escaped on output.
+- Missing or blank `name`: 400 problem response, no default greeting.
+- Response format: JSON `{"greeting": "Hello, <name>!"}`.
 
 ## Open questions
 - None.
