@@ -18,6 +18,9 @@
 #     unpack, gate (checks only, no build), publish   push the gated commit and open the pull request
 #   report job   tell the issue which phase stopped the run
 #   failed       in a job that failed: say why in the job summary and as a job output
+# and, from .github/workflows/factory-chain.yml on a push to the default branch (claude-factory ADR 0026):
+#   chain        a merged factory:spec pull request left its spec approved: label the issue factory:build and
+#                start the build run
 # State is kept between phases in $FACTORY_STATE. Tested with a fake `gh` and a stand-in agent by
 # claude-factory's ci/test-factory-run.sh.
 set -euo pipefail
@@ -35,20 +38,29 @@ saved() { [[ -s "$state/$1" ]] || die "no '$1' from an earlier phase (run the ph
 output() { [[ -z "${GITHUB_OUTPUT:-}" ]] || echo "$1=$2" >> "$GITHUB_OUTPUT"; }
 
 phase="${1:-}"
-[[ -n "$phase" ]] || { echo "usage: factory-run.sh resolve|tools|agent|pack|unpack|gate|publish|failed|report" >&2; exit 2; }
-[[ "$phase" == failed || "$phase" == report ]] || echo "$phase" > "$state/phase"
+[[ -n "$phase" ]] || { echo "usage: factory-run.sh resolve|tools|agent|pack|unpack|gate|publish|failed|report|chain" >&2; exit 2; }
+[[ "$phase" == failed || "$phase" == report || "$phase" == chain ]] || echo "$phase" > "$state/phase"
 
 case "$phase" in
   resolve)
-    need GITHUB_REPOSITORY ISSUE_NUMBER SENDER
+    need GITHUB_REPOSITORY ISSUE_NUMBER
     [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]] || die "issue number is not a number"
 
-    # Only someone who may push to this repository can start a run.
-    permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>/dev/null || true)"
-    case "$permission" in
-      admin|maintain|write) ;;
-      *) die "$SENDER may not start a factory run (repository permission: ${permission:-none})" ;;
-    esac
+    if [[ "${GITHUB_EVENT_NAME:-}" == workflow_dispatch ]]; then
+      # Started by the chain workflow or by hand (claude-factory ADR 0026). GitHub lets only people and workflows
+      # with write access dispatch a workflow, so there is nobody to check. The event carries no issue: read it.
+      issue="$(gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER" 2>/dev/null)" || die "issue #$ISSUE_NUMBER not found"
+      [[ "$(jq -r 'has("pull_request")' <<<"$issue")" == false ]] || die "#$ISSUE_NUMBER is a pull request, not an issue"
+      ISSUE_TITLE="$(jq -r '.title // ""' <<<"$issue")"; ISSUE_BODY="$(jq -r '.body // ""' <<<"$issue")"
+    else
+      # Only someone who may push to this repository can start a run.
+      need SENDER
+      permission="$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$SENDER/permission" --jq .permission 2>/dev/null || true)"
+      case "$permission" in
+        admin|maintain|write) ;;
+        *) die "$SENDER may not start a factory run (repository permission: ${permission:-none})" ;;
+      esac
+    fi
 
     # The project is pinned to a plugin release (claude-factory ADR 0015); the run uses exactly that one.
     ref="$(jq -r '.extraKnownMarketplaces["claude-factory"].source.ref // empty' .claude/settings.json 2>/dev/null || true)"
@@ -278,14 +290,14 @@ case "$phase" in
       status="$(saved spec-status)"
       pr_title="spec: $title (#$ISSUE_NUMBER)"
       if [[ "$status" == Approved ]]; then
-        next="It has no open questions and says \`- Status: Approved\`: merging this pull request approves it."
+        next="It has no open questions and says \`- Status: Approved\`: merging this pull request approves it and starts the build."
         todo="Review it and merge to approve it"
       else
-        next="It has open questions, so it says \`- Status: Draft\`. Answer them in the file, set \`- Status: Approved\`, then merge: that approves it."
+        next="It has open questions, so it says \`- Status: Draft\`. Answer them in the file, set \`- Status: Approved\`, then merge: that approves it and starts the build."
         todo="Answer its open questions in the file, set \`- Status: Approved\` and merge"
       fi
       footer="$(printf 'Adds `%s`, drafted unattended from issue #%s by the java-pipeline factory run%s. %s\n\nRefs #%s' "$spec" "$ISSUE_NUMBER" "$run" "$next" "$ISSUE_NUMBER")"
-      done_note="Spec drafted: PR_URL adds \`$spec\`. $todo, then put the label \`factory:build\` on this issue to build it."
+      done_note="Spec drafted: PR_URL adds \`$spec\`. $todo: the build then starts by itself (the label \`factory:build\` is put on this issue for you)."
     else
       pr_title="feat: $title (#$ISSUE_NUMBER)"
       footer="$(printf 'Spec: `%s`. Built unattended by the java-pipeline factory run%s; `./mvnw verify` was green on this commit.\n\nCloses #%s' "$spec" "$run" "$ISSUE_NUMBER")"
@@ -301,9 +313,17 @@ case "$phase" in
     [[ -n "$pr_url" ]] || die "the pull request was not created"
     echo "$pr_url" > "$state/pr-url"
 
+    # GitHub starts no workflow on a pull request opened with the workflow's own token, but that token may
+    # dispatch one: start CI on the branch, so its checks land on the pull request's commit (ADR 0026).
     note=""
-    [[ "${FACTORY_PR_TOKEN_SET:-false}" == true ]] \
-      || note=" CI does not start on a pull request opened with the workflow's own token: close and reopen it, or add the FACTORY_PR_TOKEN secret."
+    if [[ "${FACTORY_PR_TOKEN_SET:-false}" != true ]]; then
+      if gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" -f ref="$branch" >/dev/null 2>"$state/ci.err"; then
+        note=" CI was started on the branch; its checks show on the pull request."
+      else
+        echo "factory-run: could not start CI: $(tr -s '\n' ' ' < "$state/ci.err")" >&2
+        note=" CI could not be started on the branch (see the run's log): close and reopen the pull request to start it."
+      fi
+    fi
     gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
       -f body="${done_note//PR_URL/$pr_url}$note" --jq .html_url >/dev/null
     echo "factory-run: opened $pr_url"
@@ -328,6 +348,55 @@ case "$phase" in
     gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
       -f body="Factory run stopped in the \`${at:-start}\` phase: $why${FACTORY_RUN_URL:+ ([run]($FACTORY_RUN_URL))}. No pull request was opened. Fix the cause, then remove and re-add the label." \
       --jq .html_url >/dev/null || echo "factory-run: could not comment on the issue" >&2
+    ;;
+
+  chain)
+    # On a push to the default branch, from that checkout (trusted code only). A factory:spec run's pull request
+    # was merged and its spec now says Approved: put factory:build on the issue and start the build. A label set
+    # with the workflow's own token starts nothing, so the build workflow is dispatched (ADR 0026).
+    need GITHUB_REPOSITORY GITHUB_SHA GH_TOKEN
+    skip() { echo "factory-run: chain: $*"; [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "No build started: $*" >> "$GITHUB_STEP_SUMMARY"; exit 0; }
+    before="${FACTORY_BEFORE:-}"
+    if [[ ! "$before" =~ ^[0-9a-f]{40}$ || "$before" =~ ^0+$ ]] || ! git rev-parse --verify -q "$before^{commit}" >/dev/null; then
+      before="$(git rev-parse --verify -q "HEAD~1^{commit}" || true)"
+    fi
+    [[ -n "$before" ]] || skip "no earlier commit to compare with"
+
+    # Specs this push approved: Approved now, and absent or not Approved before.
+    approved=""
+    while IFS= read -r f; do
+      [[ "$f" =~ ^docs/specs/[0-9]{4}-[a-z0-9]+(-[a-z0-9]+)*\.md$ && -f "$f" && ! -L "$f" ]] || continue
+      grep -qE '^- Status: *Approved *$' "$f" || continue
+      ! git show "$before:$f" 2>/dev/null | grep -qE '^- Status: *Approved *$' || continue
+      approved="$f"; break
+    done < <(git diff --name-only --diff-filter=AM "$before" HEAD -- docs/specs)
+    [[ -n "$approved" ]] || skip "this push approved no spec"
+
+    # The issue is the one the factory:spec run drafted the spec for: its pull request's branch is factory/spec-<n>.
+    prs="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls")" || die "could not read the pull request of $GITHUB_SHA"
+    issue="$(jq -r --arg repo "$GITHUB_REPOSITORY" '[.[] | select(.merged_at != null and .head.repo.full_name == $repo)
+      | .head.ref | select(test("^factory/spec-[0-9]+$")) | sub("^factory/spec-"; "")] | first // empty' <<<"$prs")"
+    [[ -n "$issue" ]] || skip "$approved was approved outside a factory:spec pull request: put factory:build on an issue that names it"
+    [[ "${FACTORY_PAUSED:-}" != true ]] || skip "the factory is paused (variable FACTORY_PAUSED=true): put factory:build on issue #$issue to build $approved"
+
+    info="$(gh api "repos/$GITHUB_REPOSITORY/issues/$issue")" || die "could not read issue #$issue"
+    [[ "$(jq -r .state <<<"$info")" == open ]] || skip "issue #$issue is closed"
+    # Someone already put the label there: that started a run (or the owner will, by re-adding it).
+    [[ "$(jq -r '[.labels[].name] | index("factory:build") != null' <<<"$info")" == false ]] || skip "issue #$issue already has factory:build"
+    if gh api "repos/$GITHUB_REPOSITORY/branches/factory%2Fissue-$issue" --jq .name >/dev/null 2>&1; then
+      skip "branch factory/issue-$issue already exists"
+    fi
+
+    gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$issue/labels" -f 'labels[]=factory:build' >/dev/null \
+      || die "could not label issue #$issue"
+    gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/factory-feature.yml/dispatches" \
+      -f ref="${GITHUB_REF_NAME:-main}" -f "inputs[issue]=$issue" -f 'inputs[label]=factory:build' >/dev/null \
+      || die "labelled issue #$issue but could not start the build: remove and re-add the label factory:build"
+    gh api "repos/$GITHUB_REPOSITORY/issues/$issue/comments" \
+      -f body="Spec approved: \`$approved\` is on ${GITHUB_REF_NAME:-main}. The build has started." --jq .html_url >/dev/null \
+      || echo "factory-run: could not comment on the issue" >&2
+    echo "factory-run: chain: started the build of $approved for issue #$issue"
+    [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "Started the build of \`$approved\` for issue #$issue" >> "$GITHUB_STEP_SUMMARY"
     ;;
 
   *)

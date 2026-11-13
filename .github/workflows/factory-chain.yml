@@ -1,0 +1,37 @@
+name: Factory chain
+
+# An approved spec starts its own build (claude-factory ADR 0026). When the pull request of a factory:spec run is
+# merged and its spec says "- Status: Approved", this puts the label factory:build on the run's issue and starts
+# factory-feature.yml for it. A label set with a workflow's token starts no workflow, so the build is dispatched.
+# Specs approved any other way are left alone: put factory:build on an issue that names the spec.
+# The variable FACTORY_PAUSED=true stops it.
+on:
+  push:
+    branches: [main]
+    paths: ['docs/specs/**']
+
+permissions:
+  contents: read
+
+jobs:
+  build-approved-spec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # which pull request this push merged
+      issues: write # label the issue and tell it
+      actions: write # start factory-feature.yml
+    steps:
+      # The default branch as merged: trusted code only, and both sides of the push to compare.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Label the issue of a newly approved spec and start its build
+        run: .github/scripts/factory-run.sh chain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FACTORY_BEFORE: ${{ github.event.before }}
+          FACTORY_PAUSED: ${{ vars.FACTORY_PAUSED }}
