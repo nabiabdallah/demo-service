@@ -313,16 +313,12 @@ case "$phase" in
     [[ -n "$pr_url" ]] || die "the pull request was not created"
     echo "$pr_url" > "$state/pr-url"
 
-    # GitHub starts no workflow on a pull request opened with the workflow's own token, but that token may
-    # dispatch one: start CI on the branch, so its checks land on the pull request's commit (ADR 0026).
+    # GitHub starts no workflow on a pull request opened with the workflow's own token, and a CI run dispatched
+    # on the branch doesn't count for the pull request's required checks. Opened as the factory's App (or with
+    # FACTORY_PR_TOKEN) it starts CI like anyone's; otherwise say what to do (claude-factory ADR 0028).
     note=""
-    if [[ "${FACTORY_PR_TOKEN_SET:-false}" != true ]]; then
-      if gh api --method POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches" -f ref="$branch" >/dev/null 2>"$state/ci.err"; then
-        note=" CI was started on the branch; its checks show on the pull request."
-      else
-        echo "factory-run: could not start CI: $(tr -s '\n' ' ' < "$state/ci.err")" >&2
-        note=" CI could not be started on the branch (see the run's log): close and reopen the pull request to start it."
-      fi
+    if [[ "${FACTORY_PR_STARTS_CI:-false}" != true ]]; then
+      note=" CI does not start on it by itself: close and reopen the pull request. To end that, give this repository the factory's App (claude-factory's docs/ONBOARDING.md)."
     fi
     gh api "repos/$GITHUB_REPOSITORY/issues/$ISSUE_NUMBER/comments" \
       -f body="${done_note//PR_URL/$pr_url}$note" --jq .html_url >/dev/null
