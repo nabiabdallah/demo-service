@@ -1,6 +1,6 @@
 # Spec: Goodbye farewell endpoint
 
-- Status: Draft
+- Status: Approved
 - Owner: issue #8 author
 - Related ADRs: 0001 (hexagonal architecture); builds on spec 0001 (hello greeting), which stays unchanged
 
@@ -44,7 +44,7 @@ reads nothing). This holds until the service gains authentication.
 1. Given `name=Alice`, when `GET /goodbye?name=Alice`, then 200 with `{"message":"Goodbye, Alice!"}`.
 2. Given `name=  Alice  ` (surrounding whitespace), when called, then the message uses the trimmed name `Alice`.
 3. Given no `name` parameter, when `GET /goodbye`, then 200 with `{"message":"Goodbye, world!"}`.
-4. Given `name=` or only whitespace, when called, then 400 with a problem body (assumes Q1).
+4. Given `name=` or only whitespace, when called, then 400 with a problem body (Q1).
 5. Given a `name` longer than 50 characters (after trimming), when called, then 400 with a problem body.
 6. Given a name containing a control character (`name=a%0Ab` or `name=a%00b`), when called, then 400 with a
    problem body that does not repeat the supplied name.
@@ -72,6 +72,8 @@ Trivial latency (in-memory string formatting). The name is treated as potential 
 No retention (nothing stored).
 
 ## Open questions
-- Q1: Should a present-but-blank `name` (`name=` or whitespace only) be 400 or fall back to "world"? The idea
-  only says "without a `name`" defaults. Recommended: 400, same as `/hello` ("everything else is the same"), so a
-  blank value is treated as an invalid name rather than silently replaced.
+None.
+
+Answered:
+- Q1 (owner, 2026-11-13): a present-but-blank `name` (`name=` or whitespace only) is 400, same as `/hello`. Only
+  an absent `name` falls back to `world`.
