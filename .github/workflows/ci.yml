@@ -1,9 +1,12 @@
 name: CI
 
+# workflow_dispatch: the unattended runner starts CI on its branch this way, because GitHub starts no workflow on a
+# pull request opened with a workflow's own token (claude-factory ADR 0026). The checks land on the same commit.
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -84,8 +87,11 @@ jobs:
       - name: Install pinned, checksum-verified tools
         run: .github/scripts/ci-tools.sh kubeconform
 
+      # A dispatched run has no base in its event: compare with where the branch left main.
       - name: Check deploy manifests and promotions
-        run: .github/scripts/check-deploy.sh "$BASE"
+        run: |
+          [[ "$GITHUB_EVENT_NAME" != workflow_dispatch ]] || BASE="$(git merge-base origin/main HEAD)"
+          .github/scripts/check-deploy.sh "$BASE"
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
 

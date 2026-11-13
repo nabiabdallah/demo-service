@@ -1,8 +1,10 @@
 name: Factory feature
 
-# Unattended factory runs (claude-factory ADRs 0018 and 0019), started by a label on an issue:
+# Unattended factory runs (claude-factory ADRs 0018 and 0019), started by a label on an issue, or dispatched
+# with an issue number and that label (factory-chain.yml does that when a spec is approved, ADR 0026):
 #   factory:spec    the issue describes an idea. The java-pipeline `intake` skill drafts a spec and the run ends in
-#                   a pull request that adds it. Merging it with "- Status: Approved" approves the spec.
+#                   a pull request that adds it. Merging it with "- Status: Approved" approves the spec and
+#                   starts its build.
 #   factory:build   the issue names an approved spec on the default branch (docs/specs/NNNN-name.md in its text, or
 #                   the "spec drafted" comment of an earlier factory:spec run). The `new-feature` skill builds it
 #                   and the run ends in a pull request that closes the issue. You review and merge.
@@ -14,23 +16,33 @@ name: Factory feature
 #   report   tells the issue why a run stopped.
 #
 # Secrets: CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY; FACTORY_PACKAGES_TOKEN (as CI).
-# Optional: FACTORY_PR_TOKEN, a fine-grained token for this repository (Contents and Pull requests: read and write),
-# so CI starts on the pull request by itself. Optional variable: FACTORY_MAX_BUDGET_USD (default 25).
+# Optional: FACTORY_PR_TOKEN, a fine-grained token for this repository (Contents and Pull requests: read and write).
+# Without it the publish job starts CI on the branch itself. Optional variable: FACTORY_MAX_BUDGET_USD (default 25).
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue:
+        description: "Issue number"
+        required: true
+      label:
+        description: "What to do with the issue"
+        required: true
+        type: choice
+        options: ['factory:build', 'factory:spec']
 
 permissions:
   contents: read
 
 # One run per issue at a time; a second label waits instead of cancelling a run that is mid-change.
 concurrency:
-  group: factory-run-${{ github.event.issue.number }}
+  group: factory-run-${{ inputs.issue || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
   agent:
-    if: github.event.label.name == 'factory:build' || github.event.label.name == 'factory:spec'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'factory:build' || github.event.label.name == 'factory:spec'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -45,8 +57,8 @@ jobs:
       why: ${{ steps.failed.outputs.why }}
       at: ${{ steps.failed.outputs.at }}
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
-      FACTORY_LABEL: ${{ github.event.label.name }}
+      ISSUE_NUMBER: ${{ inputs.issue || github.event.issue.number }}
+      FACTORY_LABEL: ${{ inputs.label || github.event.label.name }}
     steps:
       # The default branch: the spec the agent builds is the one the owner merged, never text from the issue.
       # No credentials are left in the checkout, so the agent can't push or call the GitHub API.
@@ -115,7 +127,7 @@ jobs:
       why: ${{ steps.failed.outputs.why }}
       at: ${{ steps.failed.outputs.at }}
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_NUMBER: ${{ inputs.issue || github.event.issue.number }}
       FACTORY_MODE: ${{ needs.agent.outputs.mode }}
       FACTORY_BRANCH: ${{ needs.agent.outputs.branch }}
       FACTORY_BASE: ${{ needs.agent.outputs.base }}
@@ -180,11 +192,12 @@ jobs:
       contents: write # push the feature branch
       pull-requests: write # open the pull request
       issues: write # report on the issue
+      actions: write # start CI on the branch: GitHub starts none on a pull request opened with this token
     outputs:
       why: ${{ steps.failed.outputs.why }}
       at: ${{ steps.failed.outputs.at }}
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_NUMBER: ${{ inputs.issue || github.event.issue.number }}
       FACTORY_MODE: ${{ needs.agent.outputs.mode }}
       FACTORY_BRANCH: ${{ needs.agent.outputs.branch }}
       FACTORY_BASE: ${{ needs.agent.outputs.base }}
@@ -235,7 +248,7 @@ jobs:
       contents: read
       issues: write # tell the issue
     env:
-      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_NUMBER: ${{ inputs.issue || github.event.issue.number }}
       FACTORY_WHY: ${{ needs.agent.outputs.why || needs.gate.outputs.why || needs.publish.outputs.why }}
       FACTORY_AT: ${{ needs.agent.outputs.at || needs.gate.outputs.at || needs.publish.outputs.at }}
       FACTORY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
