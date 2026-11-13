@@ -1,6 +1,8 @@
 package com.example.demo.config;
 
+import com.example.demo.application.FarewellService;
 import com.example.demo.application.GreetService;
+import com.example.demo.application.port.in.FarewellUseCase;
 import com.example.demo.application.port.in.GreetUseCase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -15,5 +17,10 @@ public class ApplicationConfig {
     @Bean
     GreetUseCase greetUseCase() {
         return new GreetService();
+    }
+
+    @Bean
+    FarewellUseCase farewellUseCase() {
+        return new FarewellService();
     }
 }
