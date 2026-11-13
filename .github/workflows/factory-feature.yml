@@ -16,8 +16,12 @@ name: Factory feature
 #   report   tells the issue why a run stopped.
 #
 # Secrets: CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`) or ANTHROPIC_API_KEY; FACTORY_PACKAGES_TOKEN (as CI).
-# Optional: FACTORY_PR_TOKEN, a fine-grained token for this repository (Contents and Pull requests: read and write).
-# Without it the publish job starts CI on the branch itself. Optional variable: FACTORY_MAX_BUDGET_USD (default 25).
+# For CI to start on the run's pull request (GitHub starts none on one opened with the workflow's own token): the
+# factory's GitHub App installed on this repository, with FACTORY_APP_KEY (secret) and FACTORY_APP_CLIENT_ID
+# (variable or secret); claude-factory's provisioning sets them (ADR 0028). Or FACTORY_PR_TOKEN, a fine-grained
+# token for this repository (Contents, Pull requests and Issues: read and write). With neither, the pull request
+# is opened with the workflow's token and needs a close and reopen. Optional variable: FACTORY_MAX_BUDGET_USD
+# (default 25).
 on:
   issues:
     types: [labeled]
@@ -192,7 +196,6 @@ jobs:
       contents: write # push the feature branch
       pull-requests: write # open the pull request
       issues: write # report on the issue
-      actions: write # start CI on the branch: GitHub starts none on a pull request opened with this token
     outputs:
       why: ${{ steps.failed.outputs.why }}
       at: ${{ steps.failed.outputs.at }}
@@ -205,6 +208,7 @@ jobs:
       FACTORY_SPEC: ${{ needs.agent.outputs.spec }}
       FACTORY_GATED_SHA: ${{ needs.gate.outputs.head }}
       FACTORY_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      FACTORY_APP: ${{ secrets.FACTORY_APP_KEY != '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -228,11 +232,20 @@ jobs:
         env:
           FACTORY_GATE_BUILD: '0'
 
+      # A token for this repository only, as the factory's App: a pull request opened with it starts CI.
+      - name: Mint an App token
+        id: app
+        if: env.FACTORY_APP == 'true'
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.FACTORY_APP_CLIENT_ID || secrets.FACTORY_APP_CLIENT_ID }}
+          private-key: ${{ secrets.FACTORY_APP_KEY }}
+
       - name: Push the branch and open the pull request
         run: '"$RUNNER_TEMP/trusted-runner.sh" publish'
         env:
-          GH_TOKEN: ${{ secrets.FACTORY_PR_TOKEN || github.token }}
-          FACTORY_PR_TOKEN_SET: ${{ secrets.FACTORY_PR_TOKEN != '' }}
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.FACTORY_PR_TOKEN || github.token }}
+          FACTORY_PR_STARTS_CI: ${{ steps.app.outputs.token != '' || secrets.FACTORY_PR_TOKEN != '' }}
 
       - name: Say why the run stopped
         id: failed
