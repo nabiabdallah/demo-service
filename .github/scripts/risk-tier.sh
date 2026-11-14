@@ -208,7 +208,13 @@ case "$phase" in
     else
       scope="The classifier rated it risk:high: it may change production code, the build or the rules. Nothing merges on your verdict; the owner reads your review and merges or not."
     fi
-    prompt="$(cat "$agent_file")
+    # The brief is the agent file's body without its front matter (name, tools, model: for Claude Code's agent
+    # loader, not instructions), behind a plain first line: the CLI reads a prompt that starts with "-" as an option.
+    brief="$(awk 'NR == 1 && /^---[[:space:]]*$/ { fm = 1; next } fm && /^---[[:space:]]*$/ { fm = 0; next } !fm' "$agent_file")"
+    [[ -n "${brief//[[:space:]]/}" ]] || die "the code-reviewer definition at $agent_file is empty"
+    prompt="Instructions for the independent code reviewer (the code-reviewer agent):
+
+$brief
 
 ---
 You are the independent reviewer of pull request #$PR. You did not write it. $scope Your tools can read files
