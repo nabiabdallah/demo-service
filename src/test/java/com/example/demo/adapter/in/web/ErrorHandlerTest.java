@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.demo.domain.DomainException;
+import com.example.demo.domain.InvalidInputException;
 import com.example.demo.domain.NotFoundException;
 import com.jayway.jsonpath.JsonPath;
 import java.net.URI;
@@ -40,6 +41,12 @@ class ErrorHandlerTest {
         }
     }
 
+    static class BadInputException extends InvalidInputException {
+        BadInputException() {
+            super("Invalid thing");
+        }
+    }
+
     static class RuleViolatedException extends DomainException {
         RuleViolatedException() {
             super("Rule violated");
@@ -53,6 +60,7 @@ class ErrorHandlerTest {
             switch (kind) {
                 case "missing" -> throw new ThingNotFoundException();
                 case "rule" -> throw new RuleViolatedException();
+                case "invalid" -> throw new BadInputException();
                 case "boom" -> throw new IllegalStateException("boom");
                 case "own-instance" -> {
                     var problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
@@ -81,6 +89,19 @@ class ErrorHandlerTest {
                 .getResponse()
                 .getContentAsString();
 
+        assertThat(body).doesNotContain(SECRET_ID);
+    }
+
+    @Test
+    void invalid_input_maps_to_400_problem_without_request_path() throws Exception {
+        var body = mvc.perform(get("/probe/{id}/invalid", SECRET_ID))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+                .andExpect(jsonPath("$.detail").value("Invalid thing"))
+                .andExpect(jsonPath("$.instance").value(startsWith("urn:uuid:")))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
         assertThat(body).doesNotContain(SECRET_ID);
     }
 

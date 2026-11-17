@@ -183,4 +183,10 @@ class GoodbyeControllerTest {
             pool.shutdownNow();
         }
     }
+
+    @Test
+    void repeated_name_is_400_and_repeats_neither_value() throws Exception { // AC14
+        var r = mvc.perform(get("/goodbye").param("name", "Alice", "Bob")).andReturn();
+        assertProblem(r, 400, "Alice", "Bob");
+    }
 }

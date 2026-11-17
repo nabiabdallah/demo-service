@@ -1,4 +1,12 @@
 package com.example.demo.application.port.in;
 
-/** Input of {@link GreetUseCase}: an already validated, trimmed name. */
-public record GreetCommand(String name) {}
+import com.example.demo.domain.PersonName;
+import java.util.Objects;
+
+/** Input of {@link GreetUseCase}. A {@link PersonName} is valid by construction, so the command is too. */
+public record GreetCommand(PersonName name) {
+
+    public GreetCommand {
+        Objects.requireNonNull(name, "name");
+    }
+}

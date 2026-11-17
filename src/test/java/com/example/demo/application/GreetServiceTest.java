@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.example.demo.application.port.in.GreetCommand;
 import com.example.demo.application.port.in.GreetUseCase;
+import com.example.demo.domain.PersonName;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CyclicBarrier;
@@ -19,14 +20,18 @@ class GreetServiceTest {
 
     @Test
     void greets_the_given_name() { // AC1, AC11
-        assertThat(service.greet(new GreetCommand("Alice")).greeting()).isEqualTo("Hello, Alice!");
+        assertThat(service.greet(new GreetCommand(new PersonName("Alice"))).greeting())
+                .isEqualTo("Hello, Alice!");
     }
 
     @Test
     void keeps_non_ascii_and_markup_unchanged() { // AC6, AC7
-        assertThat(service.greet(new GreetCommand("Zoë")).greeting()).isEqualTo("Hello, Zoë!");
-        assertThat(service.greet(new GreetCommand("李雷")).greeting()).isEqualTo("Hello, 李雷!");
-        assertThat(service.greet(new GreetCommand("<b>x</b>")).greeting()).isEqualTo("Hello, <b>x</b>!");
+        assertThat(service.greet(new GreetCommand(new PersonName("Zoë"))).greeting())
+                .isEqualTo("Hello, Zoë!");
+        assertThat(service.greet(new GreetCommand(new PersonName("李雷"))).greeting())
+                .isEqualTo("Hello, 李雷!");
+        assertThat(service.greet(new GreetCommand(new PersonName("<b>x</b>"))).greeting())
+                .isEqualTo("Hello, <b>x</b>!");
     }
 
     @Test
@@ -42,7 +47,8 @@ class GreetServiceTest {
                     barrier.await(10, TimeUnit.SECONDS);
                     String last = null;
                     for (int k = 0; k < 200; k++) {
-                        last = service.greet(new GreetCommand(name)).greeting();
+                        last = service.greet(new GreetCommand(new PersonName(name)))
+                                .greeting();
                         if (!last.equals("Hello, " + name + "!")) {
                             return last;
                         }
