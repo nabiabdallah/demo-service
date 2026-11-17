@@ -1,4 +1,12 @@
 package com.example.demo.application.port.in;
 
-/** Input of {@link FarewellUseCase}: an already validated, trimmed name. */
-public record FarewellCommand(String name) {}
+import com.example.demo.domain.PersonName;
+import java.util.Objects;
+
+/** Input of {@link FarewellUseCase}. A {@link PersonName} is valid by construction, so the command is too. */
+public record FarewellCommand(PersonName name) {
+
+    public FarewellCommand {
+        Objects.requireNonNull(name, "name");
+    }
+}

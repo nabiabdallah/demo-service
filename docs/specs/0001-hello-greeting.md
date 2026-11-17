@@ -43,7 +43,8 @@ is stateless and reads nothing). This holds until the service gains authenticati
 2. Given `name=  Alice  ` (surrounding whitespace), when called, then the greeting uses the trimmed name `Alice`.
 3. Given no `name` parameter, when called, then the response is 400 with a problem body and no stack trace or internal detail.
 4. Given `name=` or only whitespace, when called, then the response is 400 with a problem body.
-5. Given a `name` longer than 50 characters, when called, then the response is 400.
+5. Given a `name` longer than 50 characters, when called, then the response is 400. Characters are Unicode code
+   points, counted after trimming: an emoji counts once.
 6. Given a non-ASCII name such as `Zoë` or `李雷`, when called, then the greeting contains it unchanged and is returned as UTF-8.
 7. Given a name containing markup such as `<b>x</b>`, when called, then it is returned as a JSON string value only, with `Content-Type: application/json`.
 8. Given `POST /hello`, when called, then the response is 405.
@@ -52,6 +53,8 @@ is stateless and reads nothing). This holds until the service gains authenticati
 11. The use-case service has a unit test with no Spring context, and `ArchitectureTest` passes.
 12. Given a name containing a control character (`name=a%0Ab` or `name=a%00b`), when called, then the response is
     400 with a problem body that does not repeat the supplied name.
+13. Given `name` more than once (`name=Alice&name=Bob`), when called, then the response is 400 with a problem body
+    that repeats neither value. (Added 2026-11-17 from the review of PR #6: Spring would otherwise greet "Alice,Bob".)
 
 ## Failure modes
 - Invalid, missing, too-long or control-character input: 400 problem response, generic detail that does not

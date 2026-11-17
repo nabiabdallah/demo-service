@@ -45,7 +45,8 @@ reads nothing). This holds until the service gains authentication.
 2. Given `name=  Alice  ` (surrounding whitespace), when called, then the message uses the trimmed name `Alice`.
 3. Given no `name` parameter, when `GET /goodbye`, then 200 with `{"message":"Goodbye, world!"}`.
 4. Given `name=` or only whitespace, when called, then 400 with a problem body (Q1).
-5. Given a `name` longer than 50 characters (after trimming), when called, then 400 with a problem body.
+5. Given a `name` longer than 50 characters (Unicode code points, after trimming), when called, then 400 with a
+   problem body.
 6. Given a name containing a control character (`name=a%0Ab` or `name=a%00b`), when called, then 400 with a
    problem body that does not repeat the supplied name.
 7. Given a non-ASCII name such as `Zoë` or `李雷`, when called, then the message contains it unchanged, as UTF-8.
@@ -57,6 +58,8 @@ reads nothing). This holds until the service gains authentication.
 11. Given concurrent requests with different names, when handled, then each response contains only its own name.
 12. Given `GET /hello` without `name`, when called, then it is still 400 (spec 0001 unchanged).
 13. The use-case service has a unit test with no Spring context, and `ArchitectureTest` passes.
+14. Given `name` more than once (`name=Alice&name=Bob`), when called, then 400 with a problem body that repeats
+    neither value. (Added 2026-11-17 from the review of demo-service PR #6.)
 
 ## Failure modes
 - Blank, too-long or control-character input: 400 problem response, generic detail that does not repeat the name.
